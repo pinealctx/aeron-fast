@@ -100,7 +100,30 @@ for ARCH in "${ARCHITECTURES[@]}"; do
         NPROC=\$(nproc || echo '4')
         echo \"使用CPU核心数: \$NPROC\"
 
-        # 配置CMake
+        # 根据架构设置优化参数
+        case "${ARCH}" in
+            "amd64")
+                # 对于amd64，如果是本机编译可以使用native，交叉编译则使用通用优化
+                if [ \"\${COMPILER_PREFIX}\" = \"x86_64-linux-gnu\" ] && [ \"\$(uname -m)\" = \"x86_64\" ]; then
+                    ARCH_FLAGS=\"-march=native -mtune=native\"
+                    echo \"x86_64本机编译: 使用native优化\"
+                else
+                    ARCH_FLAGS=\"-march=x86-64 -mtune=generic\"
+                    echo \"x86_64交叉编译: 使用通用优化\"
+                fi
+                ;;
+            "arm64")
+                # ARM64常用的高性能CPU优化
+                ARCH_FLAGS=\"-march=armv8-a+crc+crypto -mtune=cortex-a72\"
+                echo \"ARM64架构: 使用armv8-a+cortex-a72优化\"
+                ;;
+            *)
+                ARCH_FLAGS=\"\"
+                echo \"未知架构: 不使用特定CPU优化\"
+                ;;
+        esac
+
+        # 配置CMake - 添加官方推荐的性能优化
         cmake /source \\
             ${CMAKE_TOOLCHAIN} \\
             -DCMAKE_BUILD_TYPE=Release \\
@@ -108,8 +131,8 @@ for ARCH in "${ARCHITECTURES[@]}"; do
             -DBUILD_AERON_ARCHIVE_API=OFF \\
             -DAERON_TESTS=OFF \\
             -DCMAKE_INSTALL_PREFIX=/build/install \\
-            -DCMAKE_C_FLAGS=\"-O3 -DNDEBUG -flto=\$NPROC -ffunction-sections -fdata-sections\" \\
-            -DCMAKE_CXX_FLAGS=\"-O3 -DNDEBUG -flto=\$NPROC -ffunction-sections -fdata-sections\" \\
+            -DCMAKE_C_FLAGS=\"-O3 -DNDEBUG -DDISABLE_BOUNDS_CHECK=1 -flto=\$NPROC -ffunction-sections -fdata-sections \$ARCH_FLAGS -ffast-math\" \\
+            -DCMAKE_CXX_FLAGS=\"-O3 -DNDEBUG -DDISABLE_BOUNDS_CHECK=1 -flto=\$NPROC -ffunction-sections -fdata-sections \$ARCH_FLAGS -ffast-math\" \\
             -DCMAKE_EXE_LINKER_FLAGS=\"-Wl,--gc-sections -static-libgcc -static-libstdc++\" \\
             -DCMAKE_VERBOSE_MAKEFILE=ON
         
