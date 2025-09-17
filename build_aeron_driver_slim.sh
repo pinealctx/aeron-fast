@@ -7,7 +7,7 @@ set -e
 # 配置
 AERON_SOURCE_DIR="../aeron"
 BUILD_BASE_DIR="./build"
-DOCKER_IMAGE="xsyphon/cross-builder:2.0"
+DOCKER_IMAGE="xsyphon/cross-builder:1.0"
 
 # 架构列表
 ARCHITECTURES=("amd64" "arm64")
@@ -50,7 +50,7 @@ for ARCH in "${ARCHITECTURES[@]}"; do
             COMPILER_PREFIX="x86_64-linux-gnu"
             ;;
         "arm64")
-            CMAKE_TOOLCHAIN="-DCMAKE_TOOLCHAIN_FILE=/opt/toolchain/aarch64-linux-gnu.cmake"
+            CMAKE_TOOLCHAIN=""
             COMPILER_PREFIX="aarch64-linux-gnu"
             ;;
         *)
@@ -79,16 +79,38 @@ for ARCH in "${ARCHITECTURES[@]}"; do
         export RANLIB=${COMPILER_PREFIX}-ranlib
         export PKG_CONFIG_PATH=/usr/lib/${COMPILER_PREFIX}/pkgconfig
         
+        echo '🔍 检查编译器版本...'
+        echo \"编译器: \${CC}\"
+        \${CC} --version || echo \"\${CC} 命令不可用\"
+        \${CXX} --version || echo \"\${CXX} 命令不可用\"
+        \${AR} --version || echo \"\${AR} 命令不可用\"
+        \${STRIP} --version || echo \"\${STRIP} 命令不可用\"
+        \${RANLIB} --version || echo \"\${RANLIB} 命令不可用\"
+        
+        echo '📦 检查pkg-config路径...'
+        pkg-config --version || echo 'pkg-config不可用'
+        pkg-config --cflags aeron-client || echo 'aeron-client未找到'
+        pkg-config --libs aeron-client || echo 'aeron-client未找到'
+        
+        # CPU核心数和内存
+        echo \"  CPU核心数: \$(nproc || echo '不可用')\"
+        echo \"  可用内存: \$(free -h | grep Mem | awk '{print \$2}' 2>/dev/null || echo '内存信息不可用')\"
+
+        # 获取CPU核心数用于并行LTO
+        NPROC=\$(nproc || echo '4')
+        echo \"使用CPU核心数: \$NPROC\"
+
         # 配置CMake
-        cmake /source \
-            ${CMAKE_TOOLCHAIN} \
-            -DCMAKE_BUILD_TYPE=Release \
-            -DBUILD_AERON_DRIVER=ON \
-            -DBUILD_AERON_ARCHIVE_API=OFF \
-            -DAERON_TESTS=OFF \
-            -DCMAKE_INSTALL_PREFIX=/build/install \
-            -DCMAKE_C_FLAGS='-O3 -DNDEBUG -flto -ffunction-sections -fdata-sections' \
-            -DCMAKE_EXE_LINKER_FLAGS='-Wl,--gc-sections -static-libgcc -static-libstdc++' \
+        cmake /source \\
+            ${CMAKE_TOOLCHAIN} \\
+            -DCMAKE_BUILD_TYPE=Release \\
+            -DBUILD_AERON_DRIVER=ON \\
+            -DBUILD_AERON_ARCHIVE_API=OFF \\
+            -DAERON_TESTS=OFF \\
+            -DCMAKE_INSTALL_PREFIX=/build/install \\
+            -DCMAKE_C_FLAGS=\"-O3 -DNDEBUG -flto=\$NPROC -ffunction-sections -fdata-sections\" \\
+            -DCMAKE_CXX_FLAGS=\"-O3 -DNDEBUG -flto=\$NPROC -ffunction-sections -fdata-sections\" \\
+            -DCMAKE_EXE_LINKER_FLAGS=\"-Wl,--gc-sections -static-libgcc -static-libstdc++\" \\
             -DCMAKE_VERBOSE_MAKEFILE=ON
         
         echo '🔨 开始编译...'
@@ -99,19 +121,40 @@ for ARCH in "${ARCHITECTURES[@]}"; do
         
         echo '📏 检查生成的可执行文件...'
         ls -la aeronmd* || echo '在当前目录未找到aeronmd'
-        find /build -name 'aeronmd*' -type f -executable
+        echo '查找所有aeronmd文件...'
+        find /build -name 'aeronmd*' -type f 2>/dev/null || echo '未找到可执行文件'
+        echo '查找install目录中的可执行文件...'
+        find /build/install -name 'aeronmd*' -type f 2>/dev/null || echo 'install目录中未找到'
+        echo '查找bin目录中的可执行文件...'
+        find /build -path '*/bin/*' -name 'aeronmd*' 2>/dev/null || echo 'bin目录中未找到'
         
         echo '🔍 检查文件信息...'
-        if [ -f aeronmd ]; then
-            file aeronmd
-            ldd aeronmd || echo '静态链接或ldd不可用'
-            ls -lh aeronmd
+        # 检查install目录中的可执行文件
+        if [ -f /build/install/bin/aeronmd ]; then
+            echo '找到 aeronmd (动态链接):'
+            file /build/install/bin/aeronmd
+            ldd /build/install/bin/aeronmd || echo '静态链接或ldd不可用'
+            ls -lh /build/install/bin/aeronmd
         fi
         
-        if [ -f aeronmd_s ]; then
-            file aeronmd_s
-            ldd aeronmd_s || echo '静态链接'
-            ls -lh aeronmd_s
+        if [ -f /build/install/bin/aeronmd_s ]; then
+            echo '找到 aeronmd_s (静态链接):'
+            file /build/install/bin/aeronmd_s
+            ldd /build/install/bin/aeronmd_s || echo '静态链接'
+            ls -lh /build/install/bin/aeronmd_s
+        fi
+        
+        # 检查binaries目录中的可执行文件
+        if [ -f /build/binaries/aeronmd ]; then
+            echo '找到 binaries/aeronmd:'
+            file /build/binaries/aeronmd
+            ls -lh /build/binaries/aeronmd
+        fi
+        
+        if [ -f /build/binaries/aeronmd_s ]; then
+            echo '找到 binaries/aeronmd_s:'
+            file /build/binaries/aeronmd_s
+            ls -lh /build/binaries/aeronmd_s
         fi
         "
     
@@ -122,18 +165,32 @@ for ARCH in "${ARCHITECTURES[@]}"; do
         DIST_DIR="${BUILD_BASE_DIR}/dist/${ARCH}"
         mkdir -p "${DIST_DIR}"
         
-        if [ -f "${BUILD_DIR}/aeronmd" ]; then
-            cp "${BUILD_DIR}/aeronmd" "${DIST_DIR}/aeronmd-${ARCH}"
+        # 从install目录复制
+        if [ -f "${BUILD_DIR}/install/bin/aeronmd" ]; then
+            cp "${BUILD_DIR}/install/bin/aeronmd" "${DIST_DIR}/aeronmd-${ARCH}"
             echo "📁 动态链接版本: ${DIST_DIR}/aeronmd-${ARCH}"
         fi
         
-        if [ -f "${BUILD_DIR}/aeronmd_s" ]; then
-            cp "${BUILD_DIR}/aeronmd_s" "${DIST_DIR}/aeronmd_s-${ARCH}"
+        if [ -f "${BUILD_DIR}/install/bin/aeronmd_s" ]; then
+            cp "${BUILD_DIR}/install/bin/aeronmd_s" "${DIST_DIR}/aeronmd_s-${ARCH}"
             echo "📁 静态链接版本: ${DIST_DIR}/aeronmd_s-${ARCH}"
         fi
         
+        # 从binaries目录复制
+        if [ -f "${BUILD_DIR}/binaries/aeronmd" ]; then
+            cp "${BUILD_DIR}/binaries/aeronmd" "${DIST_DIR}/aeronmd-binaries-${ARCH}"
+            echo "📁 binaries动态版本: ${DIST_DIR}/aeronmd-binaries-${ARCH}"
+        fi
+        
+        if [ -f "${BUILD_DIR}/binaries/aeronmd_s" ]; then
+            cp "${BUILD_DIR}/binaries/aeronmd_s" "${DIST_DIR}/aeronmd_s-binaries-${ARCH}"
+            echo "📁 binaries静态版本: ${DIST_DIR}/aeronmd_s-binaries-${ARCH}"
+        fi
+        
         # 查找安装目录中的文件
-        find "${BUILD_DIR}" -name "aeronmd*" -type f -executable -exec cp {} "${DIST_DIR}/" \;
+        echo '复制所有找到的可执行文件到dist目录...'
+        find "${BUILD_DIR}" -name "aeronmd" -type f 2>/dev/null -exec cp {} "${DIST_DIR}/aeronmd-found-${ARCH}" \; 2>/dev/null || true
+        find "${BUILD_DIR}" -name "aeronmd_s" -type f 2>/dev/null -exec cp {} "${DIST_DIR}/aeronmd_s-found-${ARCH}" \; 2>/dev/null || true
     else
         echo "❌ ${ARCH} 架构编译失败"
     fi
@@ -148,11 +205,13 @@ echo ""
 DIST_BASE="${BUILD_BASE_DIR}/dist"
 if [ -d "${DIST_BASE}" ]; then
     echo "📦 生成的可执行文件:"
-    find "${DIST_BASE}" -type f -executable | while read -r file; do
-        echo "  $(basename "$file"): $(file "$file" | cut -d: -f2-)"
-        echo "    路径: $file"
-        echo "    大小: $(ls -lh "$file" | awk '{print $5}')"
-        echo ""
+    find "${DIST_BASE}" -type f 2>/dev/null | while read -r file; do
+        if [ -x "$file" ]; then
+            echo "  $(basename "$file"): $(file "$file" 2>/dev/null | cut -d: -f2-)"
+            echo "    路径: $file"
+            echo "    大小: $(ls -lh "$file" | awk '{print $5}')"
+            echo ""
+        fi
     done
 else
     echo "⚠️ 未找到生成的可执行文件"
