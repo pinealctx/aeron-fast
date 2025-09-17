@@ -11,6 +11,7 @@ fi
 
 REMOTE_TARGET=$1
 LOCAL_BINARY_DIR="./build/dist/amd64"
+APP_BINARY_NAME="./c-performance/build/dist"
 LOCAL_SCRIPT_DIR="./linux-script"
 
 echo "🚀 同步Aeron C++ MediaDriver到Linux服务器..."
@@ -25,6 +26,13 @@ if [ ! -d "$LOCAL_BINARY_DIR" ]; then
     exit 1
 fi
 
+# 检查可执行文件目录是否存在
+if [ ! -d "$APP_BINARY_NAME" ]; then
+    echo "❌ 可执行文件目录不存在: $APP_BINARY_NAME"
+    exit 1
+fi
+
+# 检查脚本目录是否存在
 if [ ! -d "$LOCAL_SCRIPT_DIR" ]; then
     echo "❌ 脚本目录不存在: $LOCAL_SCRIPT_DIR"
     exit 1
@@ -46,6 +54,17 @@ rsync -avz --progress \
     $LOCAL_BINARY_DIR/ \
     $REMOTE_TARGET/
 
+echo ""
+echo "📦 同步C++ App可执行文件..."
+rsync -avz --progress \
+    --include="binary_publisher-amd64" \
+    --include="binary_publisher-install-amd64" \
+    --include="binary_subscriber-amd64" \
+    --include="binary_subscriber-install-amd64" \
+    --exclude="*" \
+    $APP_BINARY_NAME/ \
+    $REMOTE_TARGET/
+  
 echo ""
 echo "📜 同步Linux脚本..."
 rsync -avz --progress \
