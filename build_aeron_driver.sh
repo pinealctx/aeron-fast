@@ -5,8 +5,8 @@
 set -e
 
 # 配置
-AERON_SOURCE_DIR="/Users/kunzhang/work/source/aeron-project/aeron"
-BUILD_BASE_DIR="/Users/kunzhang/work/source/aeron-project/aeron-c/build"
+AERON_SOURCE_DIR="../aeron"
+BUILD_BASE_DIR="./build"
 DOCKER_IMAGE="xsyphon/cross-builder:2.0"
 
 # 架构列表
