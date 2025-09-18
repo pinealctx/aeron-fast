@@ -1,3 +1,4 @@
+#define _GNU_SOURCE
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdint.h>
@@ -153,16 +154,39 @@ int64_t publish_message(aeron_publication_t *publication, uint8_t *message, size
 int run_publisher(aeron_publication_t *publication, const config_t *config) {
     printf("开始发送消息，按Ctrl+C停止...\n");
     
-    // 分配消息缓冲区
-    uint8_t *message_buffer = malloc(config->message_size);
+    // 验证配置参数
+    if (config->message_size < MIN_MESSAGE_SIZE) {
+        fprintf(stderr, "错误: 消息大小 (%zu) 小于最小值 (%d)\n", 
+                config->message_size, MIN_MESSAGE_SIZE);
+        return ERROR_INVALID_PARAM;
+    }
+    
+    printf("配置验证通过: message_size=%zu, MIN_MESSAGE_SIZE=%d\n", 
+           config->message_size, MIN_MESSAGE_SIZE);
+    
+    // 分配消息缓冲区 - 使用32字节对齐避免AVX2指令崩溃
+    size_t aligned_size = ((config->message_size + BUFFER_ALIGNMENT - 1) / BUFFER_ALIGNMENT) * BUFFER_ALIGNMENT;
+    uint8_t *message_buffer = aligned_alloc(BUFFER_ALIGNMENT, aligned_size);
     if (!message_buffer) {
-        fprintf(stderr, "错误: 无法分配消息缓冲区\n");
+        fprintf(stderr, "错误: 无法分配对齐的消息缓冲区\n");
         return ERROR_MEMORY_ALLOCATION;
     }
     
-    // 初始化消息内容（固定模式）
-    for (size_t i = TIMESTAMP_SIZE; i < config->message_size; i++) {
-        message_buffer[i] = (uint8_t)(i % 256);
+    // 初始化整个缓冲区为0，防止优化导致的未初始化内存问题
+    memset(message_buffer, 0, config->message_size);
+    
+    if (config->message_size > TIMESTAMP_SIZE) {
+        // 计算需要填充的字节数
+        size_t fill_size = config->message_size - TIMESTAMP_SIZE;
+        
+        // 使用更安全的方式初始化，避免循环优化问题
+        uint8_t *payload_start = message_buffer + TIMESTAMP_SIZE;
+        for (size_t i = 0; i < fill_size; i++) {
+            payload_start[i] = (uint8_t)(i % 256);
+        }
+    } else {
+        printf("消息大小 (%zu) 不大于时间戳大小 (%d)，跳过内容填充\n", 
+               config->message_size, TIMESTAMP_SIZE);
     }
     
     // 创建统计报告线程

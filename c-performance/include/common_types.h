@@ -7,7 +7,7 @@
 
 // 缓存行大小常量
 #define CACHE_LINE_SIZE 64
-#define BUFFER_ALIGNMENT 16
+#define BUFFER_ALIGNMENT 32  // AVX2需要32字节对齐
 
 // 默认配置常量
 #define DEFAULT_CHANNEL "aeron:udp?endpoint=localhost:20121"
