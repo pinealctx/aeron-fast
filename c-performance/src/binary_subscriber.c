@@ -87,12 +87,16 @@ void print_realtime_stats() {
     uint64_t interval_bytes = g_stats.bytes_received - g_stats.last_bytes_received;
     
     if (interval_time > 0) {
-        printf("收到: %8lu/%lu, 字节: %10lu, 速率: %8.0f 消息/秒, %6.1f MB/秒\n",
+        // 使用整数运算避免浮点数兼容性问题
+        uint64_t msg_rate = (interval_messages * 1000000000ULL) / interval_time;
+        uint64_t byte_rate_mb = (interval_bytes * 1000000000ULL) / interval_time / (1024 * 1024);
+        
+        printf("收到: %8" PRIu64 "/%" PRIu64 ", 字节: %10" PRIu64 ", 速率: %8" PRIu64 " 消息/秒, %6" PRIu64 " MB/秒\n",
                g_stats.messages_received,
                g_target_messages,
                g_stats.bytes_received,
-               interval_messages * 1.0e9 / interval_time,
-               interval_bytes * 1.0e9 / interval_time / (1024 * 1024));
+               msg_rate,
+               byte_rate_mb);
     }
     
     g_stats.last_stats_time = current_time;
@@ -109,31 +113,28 @@ void print_final_stats() {
     uint64_t total_duration = g_stats.end_time - g_stats.start_time;
     
     printf("\n=== 最终性能统计 ===\n");
-    printf("总消息数:     %lu\n", g_stats.messages_received);
-    printf("总字节数:     %lu\n", g_stats.bytes_received);
-    printf("总片段数:     %lu\n", g_stats.fragments_received);
-    printf("轮询次数:     %lu\n", g_stats.polling_iterations);
-    printf("总耗时:       %.3f 秒\n", total_duration / 1.0e9);
-    
-    if (total_duration > 0) {
-        printf("平均吞吐量:   %.2f 消息/秒\n", 
-               g_stats.messages_received * 1.0e9 / total_duration);
-        printf("平均带宽:     %.2f MB/秒\n", 
-               g_stats.bytes_received * 1.0e9 / total_duration / (1024 * 1024));
+    printf("总消息数:     %" PRIu64 "\n", g_stats.messages_received);
+    printf("总字节数:     %" PRIu64 "\n", g_stats.bytes_received);
+    printf("总片段数:     %" PRIu64 "\n", g_stats.fragments_received);
+    printf("轮询次数:     %" PRIu64 "\n", g_stats.polling_iterations);
+    printf("总耗时:       %" PRIu64 " ns (%" PRIu64 " 秒)\n",
+           (uint64_t)total_duration, (uint64_t)(total_duration / 1000000000ULL));    if (total_duration > 0) {
+        uint64_t msg_throughput = (g_stats.messages_received * 1000000000ULL) / total_duration;
+        uint64_t byte_throughput = (g_stats.bytes_received * 1000000000ULL) / total_duration / (1024 * 1024);
+        
+        printf("平均吞吐量:   %" PRIu64 " 消息/秒\n", msg_throughput);
+        printf("平均带宽:     %" PRIu64 " MB/秒\n", byte_throughput);
     }
     
     // 延迟统计
     if (g_stats.messages_received > 0) {
         printf("\n=== 延迟统计 ===\n");
-        printf("最小延迟:     %lu ns (%.3f μs)\n", 
-               g_stats.min_latency, g_stats.min_latency / 1000.0);
-        printf("最大延迟:     %lu ns (%.3f μs)\n", 
-               g_stats.max_latency, g_stats.max_latency / 1000.0);
-        printf("平均延迟:     %.2f ns (%.3f μs)\n", 
-               (double)g_stats.total_latency / g_stats.messages_received,
-               (double)g_stats.total_latency / g_stats.messages_received / 1000.0);
-        
-        // 详细延迟分布 (如果性能统计可用)
+        printf("最小延迟:     %" PRIu64 " ns (%" PRIu64 " μs)\n",
+               (uint64_t)g_stats.min_latency, (uint64_t)(g_stats.min_latency / 1000ULL));
+        printf("最大延迟:     %" PRIu64 " ns (%" PRIu64 " μs)\n",
+               (uint64_t)g_stats.max_latency, (uint64_t)(g_stats.max_latency / 1000ULL));        uint64_t avg_latency = g_stats.total_latency / g_stats.messages_received;
+        printf("平均延迟:     %" PRIu64 " ns (%" PRIu64 " μs)\n",
+               (uint64_t)avg_latency, (uint64_t)(avg_latency / 1000ULL));        // 详细延迟分布 (如果性能统计可用)
         if (g_stats.latency_stats) {
             print_latency_distribution(g_stats.latency_stats);
         }
@@ -210,7 +211,7 @@ void process_message_fragment(
 
 // 主接收循环
 int run_subscriber(aeron_subscription_t *subscription, const config_t *config) {
-    printf("开始接收消息，目标: %lu 条，按Ctrl+C停止...\n", config->target_message_count);
+    printf("开始接收消息，目标: %" PRIu64 " 条，按Ctrl+C停止...\n", config->target_message_count);
     
     g_target_messages = config->target_message_count;
     
@@ -226,8 +227,6 @@ int run_subscriber(aeron_subscription_t *subscription, const config_t *config) {
         fprintf(stderr, "警告: 无法创建统计线程\n");
     }
     
-    // 预热时间函数
-    warmup_time_functions(1000);
     
     printf("\n开始接收消息...\n");
     
@@ -309,7 +308,7 @@ int main(int argc, char **argv) {
     
     // 打印配置摘要
     print_config_summary(&config);
-    printf("目标消息数:   %lu\n", config.target_message_count);
+    printf("目标消息数:   %" PRIu64 "\n", config.target_message_count);
     printf("片段限制:     %d\n", config.fragment_limit);
     printf("\n");
     
@@ -326,6 +325,14 @@ int main(int argc, char **argv) {
     // 创建Aeron上下文
     if (aeron_context_init(&context) < 0) {
         fprintf(stderr, "错误: 无法初始化Aeron上下文: %s\n", aeron_errmsg());
+        return 1;
+    }
+    
+    // 设置Aeron目录（从配置）
+    printf("设置Aeron目录: %s\n", config.aeron_dir);
+    if (aeron_context_set_dir(context, config.aeron_dir) < 0) {
+        fprintf(stderr, "错误: 无法设置Aeron目录: %s\n", aeron_errmsg());
+        aeron_context_close(context);
         return 1;
     }
     

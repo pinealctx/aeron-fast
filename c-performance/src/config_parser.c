@@ -11,6 +11,7 @@ void set_default_config(config_t *config) {
     strncpy(config->channel, DEFAULT_CHANNEL, sizeof(config->channel) - 1);
     config->channel[sizeof(config->channel) - 1] = '\0';
     config->custom_endpoint[0] = '\0';
+    config->aeron_dir[0] = '\0';  // 初始化为空，由load_config_from_env设置
     config->stream_id = DEFAULT_STREAM_ID;
     config->message_size = DEFAULT_MESSAGE_SIZE;
     config->message_count = DEFAULT_MESSAGE_COUNT;
@@ -23,7 +24,12 @@ void load_config_from_env(config_t *config) {
     
     const char *aeron_dir = getenv("AERON_DIR");
     if (aeron_dir) {
-        // Aeron目录从环境变量设置，但我们的简化版本暂时不使用
+        strncpy(config->aeron_dir, aeron_dir, sizeof(config->aeron_dir) - 1);
+        config->aeron_dir[sizeof(config->aeron_dir) - 1] = '\0';
+    } else {
+        // 使用默认值
+        strncpy(config->aeron_dir, "/dev/shm/aeron", sizeof(config->aeron_dir) - 1);
+        config->aeron_dir[sizeof(config->aeron_dir) - 1] = '\0';
     }
 }
 
@@ -119,7 +125,7 @@ int parse_publisher_args(int argc, char **argv, config_t *config) {
             case 'e':
             case 'i':
                 strncpy(config->custom_endpoint, optarg, sizeof(config->custom_endpoint) - 1);
-                config->custom_endpoint[sizeof(config->custom_endpoint) - 1] = '\\0';
+                config->custom_endpoint[sizeof(config->custom_endpoint) - 1] = '\0';
                 printf("Publisher将绑定到: %s:20121\n", config->custom_endpoint);
                 break;
                 
@@ -179,7 +185,7 @@ int parse_subscriber_args(int argc, char **argv, config_t *config) {
             case 'e':
             case 'i':
                 strncpy(config->custom_endpoint, optarg, sizeof(config->custom_endpoint) - 1);
-                config->custom_endpoint[sizeof(config->custom_endpoint) - 1] = '\\0';
+                config->custom_endpoint[sizeof(config->custom_endpoint) - 1] = '\0';
                 printf("Subscriber将连接到: %s:20121\n", config->custom_endpoint);
                 break;
                 
@@ -213,7 +219,7 @@ int validate_config(config_t *config) {
     }
     
     // 验证NETWORK_UDP模式必须指定端点
-    if (config->transport_type == TRANSPORT_NETWORK_UDP && config->custom_endpoint[0] == '\\0') {
+    if (config->transport_type == TRANSPORT_NETWORK_UDP && config->custom_endpoint[0] == '\0') {
         fprintf(stderr, "错误: NETWORK_UDP模式必须指定IP地址\n");
         return ERROR_INVALID_PARAM;
     }

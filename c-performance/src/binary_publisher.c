@@ -55,17 +55,17 @@ void print_stats(bool final) {
     
     if (final) {
         printf("\n=== 最终性能统计 ===\n");
-        printf("总消息数:     %lu\n", g_stats.messages_sent);
-        printf("总字节数:     %lu\n", g_stats.bytes_sent);
-        printf("发送错误:     %lu\n", g_stats.send_errors);
-        printf("背压事件:     %lu\n", g_stats.back_pressure_events);
-        printf("总耗时:       %.3f 秒\n", total_duration / 1.0e9);
-        
-        if (total_duration > 0) {
-            printf("平均吞吐量:   %.2f 消息/秒\n", 
-                   g_stats.messages_sent * 1.0e9 / total_duration);
-            printf("平均带宽:     %.2f MB/秒\n", 
-                   g_stats.bytes_sent * 1.0e9 / total_duration / (1024 * 1024));
+        printf("总消息数:     %" PRIu64 "\n", g_stats.messages_sent);
+        printf("总字节数:     %" PRIu64 "\n", g_stats.bytes_sent);
+        printf("发送错误:     %" PRIu64 "\n", g_stats.send_errors);
+        printf("背压事件:     %" PRIu64 "\n", g_stats.back_pressure_events);
+        printf("总耗时:       %" PRIu64 " ns (%" PRIu64 " 秒)\n",
+               (uint64_t)total_duration, (uint64_t)(total_duration / 1000000000ULL));        if (total_duration > 0) {
+            uint64_t msg_throughput = (g_stats.messages_sent * 1000000000ULL) / total_duration;
+            uint64_t byte_throughput = (g_stats.bytes_sent * 1000000000ULL) / total_duration / (1024 * 1024);
+            
+            printf("平均吞吐量:   %" PRIu64 " 消息/秒\n", msg_throughput);
+            printf("平均带宽:     %" PRIu64 " MB/秒\n", byte_throughput);
         }
     } else {
         uint64_t interval_time = current_time - g_stats.last_stats_time;
@@ -73,11 +73,14 @@ void print_stats(bool final) {
         uint64_t interval_bytes = g_stats.bytes_sent - g_stats.last_bytes_sent;
         
         if (interval_time > 0) {
-            printf("消息: %8lu, 字节: %10lu, 速率: %8.0f 消息/秒, %6.1f MB/秒\n",
+            uint64_t interval_msg_rate = (interval_messages * 1000000000ULL) / interval_time;
+            uint64_t interval_byte_rate = (interval_bytes * 1000000000ULL) / interval_time / (1024 * 1024);
+            
+            printf("消息: %8" PRIu64 ", 字节: %10" PRIu64 ", 速率: %8" PRIu64 " 消息/秒, %6" PRIu64 " MB/秒\n",
                    g_stats.messages_sent,
                    g_stats.bytes_sent,
-                   interval_messages * 1.0e9 / interval_time,
-                   interval_bytes * 1.0e9 / interval_time / (1024 * 1024));
+                   interval_msg_rate,
+                   interval_byte_rate);
         }
         
         g_stats.last_stats_time = current_time;
@@ -172,15 +175,13 @@ int run_publisher(aeron_publication_t *publication, const config_t *config) {
     g_stats.start_time = get_timestamp_ns();
     g_stats.last_stats_time = g_stats.start_time;
     
-    // 预热时间函数
-    warmup_time_functions(1000);
     
     uint64_t messages_to_send = config->message_count;
     uint64_t successful_sends = 0;
     uint64_t retry_count = 0;
     const uint64_t MAX_RETRIES = 1000000;  // 最大重试次数
     
-    printf("\n开始发送 %lu 条消息，每条 %zu 字节...\n", 
+    printf("\n开始发送 %" PRIu64 " 条消息，每条 %zu 字节...\n", 
            messages_to_send, config->message_size);
     
     while (running && successful_sends < messages_to_send) {
@@ -211,7 +212,7 @@ int run_publisher(aeron_publication_t *publication, const config_t *config) {
             continue;
         } else {
             // 严重错误
-            fprintf(stderr, "错误: 发送失败 (错误码: %ld)\n", result);
+            fprintf(stderr, "错误: 发送失败 (错误码: %" PRId64 ")\n", result);
             break;
         }
     }
@@ -279,6 +280,14 @@ int main(int argc, char **argv) {
     // 创建Aeron上下文
     if (aeron_context_init(&context) < 0) {
         fprintf(stderr, "错误: 无法初始化Aeron上下文: %s\n", aeron_errmsg());
+        return 1;
+    }
+    
+    // 设置Aeron目录（从配置）
+    printf("使用Aeron目录: %s\n", config.aeron_dir);
+    if (aeron_context_set_dir(context, config.aeron_dir) < 0) {
+        fprintf(stderr, "错误: 无法设置Aeron目录: %s\n", aeron_errmsg());
+        aeron_context_close(context);
         return 1;
     }
     

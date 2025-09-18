@@ -1,12 +1,11 @@
 #!/bin/bash
 # Aeron C Performance Test 交叉编译脚本
-# 使用Docker交叉编译环境构建AMD64版本
+# 使用本地aeron-lib库进行编译
 
 set -e
 
 # 配置
 PROJECT_SOURCE_DIR="."
-AERON_SOURCE_DIR="../../aeron"
 BUILD_BASE_DIR="./build"
 DOCKER_IMAGE="xsyphon/cross-builder:1.0"
 
@@ -28,16 +27,16 @@ if [ ! -d "${PROJECT_SOURCE_DIR}" ]; then
     exit 1
 fi
 
-# 检查Aeron源码目录
-if [ ! -d "${AERON_SOURCE_DIR}" ]; then
-    echo "❌ Aeron源码目录不存在: ${AERON_SOURCE_DIR}"
-    echo "请确保Aeron源码位于相对路径: ${AERON_SOURCE_DIR}"
+# 检查本地aeron-lib目录
+if [ ! -d "${PROJECT_SOURCE_DIR}/aeron-lib" ]; then
+    echo "❌ 本地Aeron库目录不存在: ${PROJECT_SOURCE_DIR}/aeron-lib"
+    echo "请确保aeron-lib目录存在并包含lib和include子目录"
     exit 1
 fi
 
-echo "🚀 开始交叉编译Aeron C Performance Test..."
+echo "🚀 开始交叉编译Aeron C Performance Test (使用本地库)..."
 echo "项目源码目录: ${PROJECT_SOURCE_DIR}"
-echo "Aeron源码目录: ${AERON_SOURCE_DIR}"
+echo "本地Aeron库: ${PROJECT_SOURCE_DIR}/aeron-lib"
 echo "构建目录: ${BUILD_BASE_DIR}"
 
 ARCH="amd64"
@@ -55,7 +54,6 @@ echo "📦 启动Docker容器编译 ${ARCH}..."
 
 docker run --rm -it \
     -v "${PROJECT_SOURCE_DIR}:/source" \
-    -v "${AERON_SOURCE_DIR}:/aeron" \
     -v "${BUILD_DIR}:/build" \
     -w /build \
     "${DOCKER_IMAGE}" \
@@ -83,42 +81,29 @@ docker run --rm -it \
     ARCH_FLAGS=\"-march=x86-64 -mtune=generic\"
     echo \"x86_64交叉编译: 使用通用优化\"
     
-    echo '📦 首先构建Aeron库...'
-    # 创建Aeron构建目录
-    AERON_BUILD_DIR=\"/build/aeron-build\"
-    mkdir -p \"\$AERON_BUILD_DIR\"
-    cd \"\$AERON_BUILD_DIR\"
+    echo '� 检查本地Aeron库...'
+    if [ ! -d '/source/aeron-lib/lib' ]; then
+        echo '❌ 本地Aeron库目录不存在: /source/aeron-lib/lib'
+        exit 1
+    fi
     
-    # 配置Aeron CMake
-    cmake /aeron \\
-        -DCMAKE_BUILD_TYPE=Release \\
-        -DCMAKE_INSTALL_PREFIX=/build/aeron-install \\
-        -DCMAKE_C_FLAGS=\"-O3 -DNDEBUG -ffunction-sections -fdata-sections \$ARCH_FLAGS\" \\
-        -DCMAKE_CXX_FLAGS=\"-O3 -DNDEBUG -ffunction-sections -fdata-sections \$ARCH_FLAGS\" \\
-        -DCMAKE_EXE_LINKER_FLAGS=\"-Wl,--gc-sections\" \\
-        -DBUILD_AERON_DRIVER=OFF \\
-        -DBUILD_AERON_ARCHIVE_API=OFF \\
-        -DAERON_TESTS=OFF \\
-        -DAERON_BUILD_SAMPLES=OFF \\
-        -DAERON_SYSTEM_TESTS=OFF
+    if [ ! -d '/source/aeron-lib/include' ]; then
+        echo '❌ 本地Aeron头文件目录不存在: /source/aeron-lib/include'
+        exit 1
+    fi
     
-    echo '🔨 编译Aeron库...'
-    make -j\$NPROC aeron
+    echo '✅ 找到本地Aeron库:'
+    ls -la /source/aeron-lib/lib/ || echo '无法列出lib目录'
     
-    echo '📦 安装Aeron库...'
-    make install
-    
-    echo '🔧 现在配置C Performance Test...'
+    echo '🔧 配置C Performance Test...'
     cd /build
     
-    # 配置我们的项目CMake，指向刚构建的Aeron
+    # 配置我们的项目CMake，使用本地aeron-lib
     cmake /source \\
         -DCMAKE_BUILD_TYPE=Release \\
         -DCMAKE_INSTALL_PREFIX=/build/install \\
         -DCMAKE_C_FLAGS=\"-O3 -DNDEBUG -ffunction-sections -fdata-sections \$ARCH_FLAGS\" \\
-        -DCMAKE_CXX_FLAGS=\"-O3 -DNDEBUG -ffunction-sections -fdata-sections \$ARCH_FLAGS\" \\
         -DCMAKE_EXE_LINKER_FLAGS=\"-Wl,--gc-sections -static-libgcc -static-libstdc++\" \\
-        -DCMAKE_PREFIX_PATH=\"/build/aeron-install\" \\
         -DCMAKE_VERBOSE_MAKEFILE=ON
     
     echo '🔨 开始编译C Performance Test...'

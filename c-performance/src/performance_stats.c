@@ -127,7 +127,7 @@ void print_performance_summary(const performance_stats_t *stats, const config_t 
     double throughput_mbps = (messages_per_sec * config->message_size) / (1024 * 1024);
     
     printf("\n\n=== 📊 %s 性能统计报告 ===\n", role);
-    printf("总处理消息数: %lu 条\n", final_count);
+    printf("总处理消息数: %" PRIu64 " 条\n", (uint64_t)final_count);
     printf("消息大小: %zu bytes\n", config->message_size);
     printf("测试总时长: %.3f 秒\n", time_span_sec);
     printf("\n");
@@ -140,7 +140,7 @@ void print_performance_summary(const performance_stats_t *stats, const config_t 
     if (strcmp(role, "Subscriber") == 0) {
         printf("⚡ 端到端延迟统计 (receiveTime - sendTime):\n");
         printf("  平均延迟: %.2f μs\n", avg_latency_us);
-        printf("  最小延迟: %.2f μs (消息#%lu)\n", min_latency_us, stats->min_latency_message_index);
+        printf("  最小延迟: %.2f μs (消息#%" PRIu64 ")\n", min_latency_us, (uint64_t)stats->min_latency_message_index);
         printf("  最大延迟: %.2f μs\n", max_latency_us);
         printf("\n");
         
@@ -149,15 +149,15 @@ void print_performance_summary(const performance_stats_t *stats, const config_t 
             uint64_t count = __atomic_load_n(&stats->latency_buckets[i], __ATOMIC_RELAXED);
             double percentage = (double)count * 100.0 / (double)final_count;
             if (i == 9) {
-                printf("  > %lu μs: %lu (%.2f%%)\n", stats->latency_bucket_limits[8], count, percentage);
+                printf("  > %" PRIu64 " μs: %" PRIu64 " (%.2f%%)\n", (uint64_t)stats->latency_bucket_limits[8], (uint64_t)count, percentage);
             } else {
-                printf("  ≤ %lu μs: %lu (%.2f%%)\n", stats->latency_bucket_limits[i], count, percentage);
+                printf("  ≤ %" PRIu64 " μs: %" PRIu64 " (%.2f%%)\n", (uint64_t)stats->latency_bucket_limits[i], (uint64_t)count, percentage);
             }
         }
     } else {
         printf("📊 发送统计:\n");
-        printf("  背压次数: %lu 次\n", back_pressure_count);
-        printf("  重试总数: %lu 次\n", retry_count);
+        printf("  背压次数: %" PRIu64 " 次\n", (uint64_t)back_pressure_count);
+        printf("  重试总数: %" PRIu64 " 次\n", (uint64_t)retry_count);
         if (final_count > 0) {
             printf("  平均重试: %.2f 次/消息\n", (double)retry_count / (double)final_count);
             printf("  背压率: %.2f%%\n", (double)back_pressure_count * 100.0 / (double)final_count);
@@ -201,10 +201,10 @@ void print_detailed_records(const performance_stats_t *stats) {
     
     for (size_t i = 0; i < stats->records.recorded_count && i < 20; i++) {  // 只显示前20条
         double latency_us = (double)stats->records.latencies[i] / 1000.0;
-        printf("%zu\t%lu\t%lu\t%.2f\n", 
+        printf("%zu\t%" PRIu64 "\t%" PRIu64 "\t%.2f\n", 
                i + 1, 
-               stats->records.send_times[i],
-               stats->records.receive_times[i],
+               (uint64_t)stats->records.send_times[i],
+               (uint64_t)stats->records.receive_times[i],
                latency_us);
     }
     
@@ -305,6 +305,6 @@ void print_latency_distribution(const performance_stats_t *stats) {
     for (int i = 0; i < 10; i++) {
         uint64_t count = stats->latency_buckets[i];
         double percentage = (double)count * 100.0 / total_messages;
-        printf("%-12s    %8lu    %6.2f%%\n", range_labels[i], count, percentage);
+        printf("%-12s    %8" PRIu64 "    %6.2f%%\n", range_labels[i], (uint64_t)count, percentage);
     }
 }

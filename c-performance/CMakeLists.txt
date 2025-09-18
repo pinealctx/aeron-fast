@@ -18,71 +18,38 @@ endif()
 # 查找线程库
 find_package(Threads REQUIRED)
 
-# 强制静态链接
-set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -static")
+# 使用本地aeron-lib目录
+set(AERON_LIB_DIR "${CMAKE_CURRENT_SOURCE_DIR}/aeron-lib")
+set(AERON_INCLUDE_DIR "${AERON_LIB_DIR}/include")
+set(AERON_STATIC_LIB "${AERON_LIB_DIR}/lib/libaeron_static.a")
+set(AERON_CLIENT_LIB "${AERON_LIB_DIR}/lib/libaeron_client.a")
+
+# 检查本地Aeron库是否存在
+if(NOT EXISTS ${AERON_INCLUDE_DIR})
+    message(FATAL_ERROR "Aeron include directory not found: ${AERON_INCLUDE_DIR}")
+endif()
+
+if(NOT EXISTS ${AERON_STATIC_LIB})
+    message(FATAL_ERROR "Aeron static library not found: ${AERON_STATIC_LIB}")
+endif()
+
+if(NOT EXISTS ${AERON_CLIENT_LIB})
+    message(FATAL_ERROR "Aeron client library not found: ${AERON_CLIENT_LIB}")
+endif()
+
+message(STATUS "Using local Aeron libraries:")
+message(STATUS "  Include: ${AERON_INCLUDE_DIR}")
+message(STATUS "  Static lib: ${AERON_STATIC_LIB}")
+message(STATUS "  Client lib: ${AERON_CLIENT_LIB}")
+
+# 设置为静态链接模式
 set(CMAKE_FIND_LIBRARY_SUFFIXES ".a")
 set(BUILD_SHARED_LIBS OFF)
 
-# 查找Aeron库
-find_path(AERON_INCLUDE_DIR
-    NAMES aeronc.h
-    HINTS
-        ${CMAKE_SOURCE_DIR}/build/amd64/aeron-install/include
-        /build/aeron-install/include
-        /usr/include
-        /usr/local/include
-        /opt/aeron/include
-        ${CMAKE_PREFIX_PATH}/include
-        ${CMAKE_SOURCE_DIR}/../../../build/install/include
-        ${CMAKE_SOURCE_DIR}/../../build/install/include
-        ${CMAKE_SOURCE_DIR}/../build/install/include
-    PATH_SUFFIXES aeron
-)
-
-find_library(AERON_LIBRARY
-    NAMES aeron_static aeron libaeron_static.a libaeron.a
-    HINTS
-        ${CMAKE_SOURCE_DIR}/build/amd64/aeron-install/lib
-        /build/aeron-install/lib
-        /usr/lib
-        /usr/local/lib
-        /opt/aeron/lib
-        ${CMAKE_PREFIX_PATH}/lib
-        ${CMAKE_SOURCE_DIR}/../../../build/install/lib
-        ${CMAKE_SOURCE_DIR}/../../build/install/lib
-        ${CMAKE_SOURCE_DIR}/../build/install/lib
-    PATH_SUFFIXES aeron
-)
-
-# 检查是否找到Aeron
-if(NOT AERON_INCLUDE_DIR OR NOT AERON_LIBRARY)
-    # 尝试直接指定本地构建的静态库
-    set(AERON_INCLUDE_DIR "${CMAKE_SOURCE_DIR}/build/amd64/aeron-install/include")
-    set(AERON_LIBRARY "${CMAKE_SOURCE_DIR}/build/amd64/aeron-install/lib/libaeron_static.a")
-    
-    if(NOT EXISTS ${AERON_INCLUDE_DIR}/aeron/aeronc.h OR NOT EXISTS ${AERON_LIBRARY})
-        message(FATAL_ERROR "Aeron library not found. Please ensure Aeron is built and installed.
-        
-        Expected paths:
-        Header: ${AERON_INCLUDE_DIR}/aeron/aeronc.h
-        Library: ${AERON_LIBRARY}
-        
-        To build Aeron:
-        1. cd to aeron source directory
-        2. ./gradlew clean build publishToMavenLocal
-        
-        Or set AERON_ROOT environment variable to point to Aeron installation.")
-    endif()
-endif()
-
-message(STATUS "Found Aeron include: ${AERON_INCLUDE_DIR}")
-message(STATUS "Found Aeron library: ${AERON_LIBRARY}")
-
-# 设置包含目录
-include_directories(
-    ${CMAKE_SOURCE_DIR}/include
-    ${AERON_INCLUDE_DIR}
-)
+# 包含目录
+include_directories(${CMAKE_CURRENT_SOURCE_DIR}/include)
+include_directories(${AERON_INCLUDE_DIR})
+include_directories(${AERON_INCLUDE_DIR}/aeron)
 
 # 定义源文件
 set(COMMON_SOURCES
@@ -94,11 +61,6 @@ set(COMMON_SOURCES
 
 # 创建静态库（可选，用于测试）
 add_library(aeron-c-performance-common STATIC ${COMMON_SOURCES})
-target_link_libraries(aeron-c-performance-common
-    ${AERON_LIBRARY}
-    Threads::Threads
-    m  # 数学库
-)
 
 # 创建Publisher可执行文件
 add_executable(binary_publisher
@@ -107,7 +69,8 @@ add_executable(binary_publisher
 )
 
 target_link_libraries(binary_publisher
-    ${AERON_LIBRARY}
+    ${AERON_STATIC_LIB}
+    ${AERON_CLIENT_LIB}
     Threads::Threads
     m  # 数学库
     -static
@@ -120,7 +83,8 @@ add_executable(binary_subscriber
 )
 
 target_link_libraries(binary_subscriber
-    ${AERON_LIBRARY}
+    ${AERON_STATIC_LIB}
+    ${AERON_CLIENT_LIB}
     Threads::Threads
     m  # 数学库
     -static
@@ -139,11 +103,13 @@ set_target_properties(binary_subscriber PROPERTIES
     LINK_SEARCH_END_STATIC 1
 )
 
-# 添加编译选项
+# 使用兼容性更好的优化选项，避免AVX2等高级指令集问题
+# 替代 -march=native 以确保跨平台兼容性
 if(CMAKE_BUILD_TYPE STREQUAL "Release")
-    target_compile_options(binary_publisher PRIVATE -march=native -mtune=native)
-    target_compile_options(binary_subscriber PRIVATE -march=native -mtune=native)
-    target_compile_options(aeron-c-performance-common PRIVATE -march=native -mtune=native)
+    # 使用 x86-64 基本指令集，兼容性最佳
+    target_compile_options(binary_publisher PRIVATE -march=x86-64 -mtune=generic)
+    target_compile_options(binary_subscriber PRIVATE -march=x86-64 -mtune=generic)
+    target_compile_options(aeron-c-performance-common PRIVATE -march=x86-64 -mtune=generic)
 endif()
 
 # 安装规则（可选）

@@ -32,6 +32,7 @@ typedef struct {
     transport_type_t transport_type;
     char channel[256];
     char custom_endpoint[64];
+    char aeron_dir[256];
     int32_t stream_id;
     size_t message_size;
     uint64_t message_count;

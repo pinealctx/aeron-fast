@@ -7,7 +7,7 @@ export AERON_DIR="/dev/shm/aeron"
 
 # C版本可执行文件路径
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-C_BINARY="$SCRIPT_DIR/../c-performance/build/dist/binary_publisher-amd64"
+C_BINARY="./binary_publisher-amd64"
 
 # 检查C可执行文件是否存在
 if [ ! -f "$C_BINARY" ]; then
@@ -75,9 +75,9 @@ if [ "$EUID" -eq 0 ] && [ -n "$SUDO_USER" ]; then
              AERON_SENDER_IDLE_STRATEGY="$AERON_SENDER_IDLE_STRATEGY" \
              AERON_PRE_TOUCH_MAPPED_MEMORY="$AERON_PRE_TOUCH_MAPPED_MEMORY" \
              AERON_PERFORM_STORAGE_CHECKS="$AERON_PERFORM_STORAGE_CHECKS" \
-         "$C_BINARY" -transport UDP "$@"
+         "$C_BINARY" -t UDP "$@"
 else
     # 普通权限执行
     echo "👤 以普通用户权限执行C程序..."
-    "$C_BINARY" -transport UDP "$@"
+    "$C_BINARY" -t UDP "$@"
 fi
